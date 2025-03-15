@@ -7,6 +7,23 @@ import matplotlib.pyplot as plt
 API_KEY = "26c01b09f8083e30a1ee9cb929188a74"
 FRED_URL = "https://api.stlouisfed.org/fred/series/observations"
 
+# Predefined dictionary of FRED Series (ID: Description)
+FRED_SERIES = {
+    "GDP": "Gross Domestic Product (GDP)",
+    "CPIAUCSL": "Consumer Price Index (Inflation)",
+    "UNRATE": "Unemployment Rate",
+    "SP500": "S&P 500 Index",
+    "FEDFUNDS": "Federal Funds Rate",
+    "M2SL": "M2 Money Supply",
+    "DGS10": "10-Year Treasury Yield",
+    "PAYEMS": "Total Nonfarm Payrolls",
+    "PCE": "Personal Consumption Expenditures",
+    "CSUSHPISA": "Case-Shiller Home Price Index",
+    "DEXUSEU": "US Dollar to Euro Exchange Rate",
+    "BAA": "Moody’s Baa Corporate Bond Yield",
+    "GDPC1": "Real GDP (Chained Dollars)",
+}
+
 # Function to fetch FRED data
 def get_fred_data(series_id, start_date="2000-01-01", end_date="2025-12-31"):
     params = {
@@ -40,8 +57,12 @@ def get_fred_data(series_id, start_date="2000-01-01", end_date="2025-12-31"):
 # Streamlit App
 st.title("📊 FRED Economic Data Viewer")
 
-# User input for FRED Series ID
-series_id = st.text_input("Enter FRED Series ID (e.g., GDP, CPIAUCSL, UNRATE)", "GDP")
+# Dropdown menu for FRED Series Selection
+series_id = st.selectbox(
+    "Select a FRED Economic Indicator:",
+    options=list(FRED_SERIES.keys()),
+    format_func=lambda x: FRED_SERIES[x]  # Show descriptions
+)
 
 # Date range selection
 start_date = st.date_input("Start Date", pd.to_datetime("2000-01-01"))
@@ -52,14 +73,14 @@ if st.button("Fetch Data"):
     df = get_fred_data(series_id, start_date=start_date.strftime("%Y-%m-%d"), end_date=end_date.strftime("%Y-%m-%d"))
 
     if df is not None:
-        st.subheader(f"Data for {series_id}")
+        st.subheader(f"Data for {FRED_SERIES[series_id]} ({series_id})")
         st.dataframe(df)  # Display table
 
         # Plot data
         st.subheader("📈 Data Visualization")
         fig, ax = plt.subplots(figsize=(10, 5))
-        ax.plot(df["date"], df["value"], marker="o", linestyle="-", color="blue", label=series_id)
-        ax.set_title(f"{series_id} Over Time")
+        ax.plot(df["date"], df["value"], marker="o", linestyle="-", color="blue", label=FRED_SERIES[series_id])
+        ax.set_title(f"{FRED_SERIES[series_id]} Over Time")
         ax.set_xlabel("Date")
         ax.set_ylabel("Value")
         ax.legend()
