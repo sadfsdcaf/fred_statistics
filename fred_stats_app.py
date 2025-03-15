@@ -4,7 +4,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 
 # FRED API Key (Replace with your own)
-API_KEY = "your_api_key_here"
+API_KEY = "26c01b09f8083e30a1ee9cb929188a74"
 FRED_DATA_URL = "https://api.stlouisfed.org/fred/series/observations"
 
 # Predefined list of common FRED indicators (ID: Description)
