@@ -46,7 +46,7 @@ def get_fred_data(series_id, start_date, end_date):
 st.title("Annual Financials & Working Capital with FRED Metrics")
 
 # Stock ticker input
-ticker = st.text_input("Enter Ticker:", "AAPL")
+ticker = st.text_input("Enter Ticker:", "HD")
 if ticker:
     stock = fetch_stock_data(ticker)
     annual_financials = stock.financials
