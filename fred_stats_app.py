@@ -3,36 +3,17 @@ import requests
 import pandas as pd
 import matplotlib.pyplot as plt
 
-# FRED API Key (Replace with your own)
+# ——— FRED settings ———
 API_KEY = "26c01b09f8083e30a1ee9cb929188a74"
 FRED_DATA_URL = "https://api.stlouisfed.org/fred/series/observations"
 
-# Predefined list of common FRED indicators (ID: Description)
+# Top three FRED series to compare
 FRED_SERIES = {
-    "GDP": "Gross Domestic Product (GDP)",
-    "CPIAUCSL": "Consumer Price Index (Inflation)",
-    "UNRATE": "Unemployment Rate",
-    "SP500": "S&P 500 Index",
-    "FEDFUNDS": "Federal Funds Rate",
-    "M2SL": "M2 Money Supply",
-    "DGS10": "10-Year Treasury Yield",
-    "PAYEMS": "Total Nonfarm Payrolls",
-    "PCE": "Personal Consumption Expenditures",
-    "CSUSHPISA": "Case-Shiller Home Price Index",
-    "DEXUSEU": "US Dollar to Euro Exchange Rate",
-    "BAA": "Moody’s Baa Corporate Bond Yield",
-    "GDPC1": "Real GDP (Chained Dollars)",
-    "CIVPART": "Labor Force Participation Rate",
-    "ISRATIO": "Inventory to Sales Ratio",
-    "BUSINV": "Total Business Inventories",
-    "RETAILSMSA": "Retail Sales (Seasonally Adjusted)",
-    "PPIACO": "Producer Price Index (All Commodities)",
-    "HOUST": "Housing Starts",
-    "DFF": "Effective Federal Funds Rate",
-    "MORTGAGE30US": "30-Year Fixed Mortgage Rate",
+    "MRTSSM444USS": "Retail Sales: Building Materials & Garden Equipment",
+    "MRTSMPCSM444USS": "% Change in Retail Sales (Building Materials & Garden Equipment)",
+    "HOUST": "Housing Starts"
 }
 
-# Function to fetch FRED data
 def get_fred_data(series_id, start_date="2000-01-01", end_date="2025-12-31"):
     params = {
         "series_id": series_id,
@@ -41,61 +22,81 @@ def get_fred_data(series_id, start_date="2000-01-01", end_date="2025-12-31"):
         "observation_start": start_date,
         "observation_end": end_date,
     }
-
-    response = requests.get(FRED_DATA_URL, params=params)
-
-    if response.status_code == 200:
-        data = response.json()
-        observations = data.get("observations", [])
-
-        if not observations:
-            return None
-
-        # Convert to DataFrame
-        df = pd.DataFrame(observations)
-        df = df[["date", "value"]]
-        df["value"] = pd.to_numeric(df["value"], errors="coerce")
-        df["date"] = pd.to_datetime(df["date"])
-
-        return df
-    else:
-        st.error(f"Error {response.status_code}: {response.text}")
+    resp = requests.get(FRED_DATA_URL, params=params)
+    if resp.status_code != 200:
+        st.error(f"Error fetching {series_id}: {resp.status_code}")
         return None
 
-# Streamlit App
-st.title("📊 FRED Economic Data Viewer")
+    data = resp.json().get("observations", [])
+    if not data:
+        return None
 
-# Dropdown menu for FRED Series Selection
-series_id = st.selectbox(
-    "Select a FRED Economic Indicator:",
-    options=list(FRED_SERIES.keys()),
-    format_func=lambda x: FRED_SERIES[x]  # Show descriptions
+    df = pd.DataFrame(data)
+    df = df[["date", "value"]]
+    df["date"] = pd.to_datetime(df["date"])
+    df["value"] = pd.to_numeric(df["value"], errors="coerce")
+    return df
+
+# ——— Streamlit layout ———
+st.title("📊 Home Depot vs. Key Housing/DIY Indicators")
+
+st.markdown(
+    """
+    This dashboard pulls in three FRED series and overlays them so you can see how:
+    - Building‑materials retail sales  
+    - Their month‑over‑month growth  
+    - New housing starts  
+    co‑move with Home Depot’s business cycle.
+    """
 )
 
-# Date range selection
-start_date = st.date_input("Start Date", pd.to_datetime("2000-01-01"))
-end_date = st.date_input("End Date", pd.to_datetime("2025-12-31"))
+# Date range
+col1, col2 = st.columns(2)
+with col1:
+    start_date = st.date_input("Start Date", pd.to_datetime("2000-01-01"))
+with col2:
+    end_date = st.date_input("End Date", pd.to_datetime("2025-12-31"))
 
-# Fetch and display data
-if st.button("Fetch Data"):
-    df = get_fred_data(series_id, start_date=start_date.strftime("%Y-%m-%d"), end_date=end_date.strftime("%Y-%m-%d"))
+if st.button("Fetch & Compare"):
+    # fetch each series
+    dfs = {}
+    for series_id, desc in FRED_SERIES.items():
+        df = get_fred_data(
+            series_id,
+            start_date=start_date.strftime("%Y-%m-%d"),
+            end_date=end_date.strftime("%Y-%m-%d"),
+        )
+        if df is not None:
+            dfs[series_id] = df
+        else:
+            st.warning(f"No data for {series_id}")
 
-    if df is not None:
-        st.subheader(f"Data for {FRED_SERIES[series_id]} ({series_id})")
-        st.dataframe(df)  # Display table
-
-        # Plot data
-        st.subheader("📈 Data Visualization")
-        fig, ax = plt.subplots(figsize=(10, 5))
-        ax.plot(df["date"], df["value"], marker="o", linestyle="-", color="blue", label=FRED_SERIES[series_id])
-        ax.set_title(f"{FRED_SERIES[series_id]} Over Time")
+    if dfs:
+        # Plot them together
+        fig, ax = plt.subplots(figsize=(10, 6))
+        for sid, df in dfs.items():
+            ax.plot(
+                df["date"],
+                df["value"],
+                marker="o",
+                linestyle="-",
+                label=FRED_SERIES[sid],
+            )
+        ax.set_title("FRED Series Comparison")
         ax.set_xlabel("Date")
         ax.set_ylabel("Value")
         ax.legend()
-        ax.grid()
+        ax.grid(True)
         st.pyplot(fig)
-    else:
-        st.warning("No data found for the given series ID and date range.")
 
-# Footer
-st.markdown("Data sourced from [FRED](https://fred.stlouisfed.org/) by the Federal Reserve Bank of St. Louis.")
+        # Optionally show each table
+        for sid, df in dfs.items():
+            st.subheader(f"{FRED_SERIES[sid]} ({sid})")
+            st.dataframe(df.set_index("date"))
+
+    else:
+        st.error("No series could be loaded.")
+
+st.markdown(
+    "Data sourced from [FRED](https://fred.stlouisfed.org/) by the Federal Reserve Bank of St. Louis."
+)
