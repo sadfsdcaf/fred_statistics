@@ -7,11 +7,9 @@ import matplotlib.pyplot as plt
 API_KEY = "26c01b09f8083e30a1ee9cb929188a74"
 FRED_DATA_URL = "https://api.stlouisfed.org/fred/series/observations"
 
-# Top three FRED series to compare
+# Single FRED series: Inventory/Sales Ratio for Building Materials & Garden Equipment Dealers
 FRED_SERIES = {
-    "MRTSSM444USS": "Retail Sales: Building Materials & Garden Equipment",
-    "MRTSMPCSM444USS": "% Change in Retail Sales (Building Materials & Garden Equipment)",
-    "HOUST": "Housing Starts"
+    "MRTSIR444USS": "Inventory/Sales Ratio: Building Materials & Garden Equipment Dealers"
 }
 
 def get_fred_data(series_id, start_date="2000-01-01", end_date="2025-12-31"):
@@ -38,64 +36,44 @@ def get_fred_data(series_id, start_date="2000-01-01", end_date="2025-12-31"):
     return df
 
 # ——— Streamlit layout ———
-st.title("📊 Home Depot vs. Key Housing/DIY Indicators")
+st.title("📊 Inventory/Sales Ratio: Building Materials & Garden Equipment Dealers")
 
 st.markdown(
     """
-    This dashboard pulls in three FRED series and overlays them so you can see how:
-    - Building‑materials retail sales  
-    - Their month‑over‑month growth  
-    - New housing starts  
-    co‑move with Home Depot’s business cycle.
+    This dashboard shows the Inventory‑to‑Sales ratio for the Building Materials & Garden Equipment dealer segment,
+    as a direct indicator of how inventories are tracking relative to sales in Home Depot’s industry.
     """
 )
 
-# Date range
+# Date range selection
 col1, col2 = st.columns(2)
 with col1:
     start_date = st.date_input("Start Date", pd.to_datetime("2000-01-01"))
 with col2:
     end_date = st.date_input("End Date", pd.to_datetime("2025-12-31"))
 
-if st.button("Fetch & Compare"):
-    # fetch each series
-    dfs = {}
-    for series_id, desc in FRED_SERIES.items():
-        df = get_fred_data(
-            series_id,
-            start_date=start_date.strftime("%Y-%m-%d"),
-            end_date=end_date.strftime("%Y-%m-%d"),
-        )
-        if df is not None:
-            dfs[series_id] = df
-        else:
-            st.warning(f"No data for {series_id}")
+if st.button("Fetch Data"):
+    series_id, desc = list(FRED_SERIES.items())[0]
+    df = get_fred_data(
+        series_id,
+        start_date=start_date.strftime("%Y-%m-%d"),
+        end_date=end_date.strftime("%Y-%m-%d"),
+    )
 
-    if dfs:
-        # Plot them together
-        fig, ax = plt.subplots(figsize=(10, 6))
-        for sid, df in dfs.items():
-            ax.plot(
-                df["date"],
-                df["value"],
-                marker="o",
-                linestyle="-",
-                label=FRED_SERIES[sid],
-            )
-        ax.set_title("FRED Series Comparison")
+    if df is not None:
+        st.subheader(f"{desc} ({series_id})")
+        st.dataframe(df.set_index("date"))
+
+        st.subheader("📈 Inventory/Sales Ratio Over Time")
+        fig, ax = plt.subplots(figsize=(10, 5))
+        ax.plot(df["date"], df["value"], marker="o", linestyle="-")
+        ax.set_title(desc)
         ax.set_xlabel("Date")
-        ax.set_ylabel("Value")
-        ax.legend()
+        ax.set_ylabel("Ratio")
         ax.grid(True)
         st.pyplot(fig)
-
-        # Optionally show each table
-        for sid, df in dfs.items():
-            st.subheader(f"{FRED_SERIES[sid]} ({sid})")
-            st.dataframe(df.set_index("date"))
-
     else:
-        st.error("No series could be loaded.")
+        st.warning("No data found for the given date range.")
 
 st.markdown(
     "Data sourced from [FRED](https://fred.stlouisfed.org/) by the Federal Reserve Bank of St. Louis."
