@@ -54,16 +54,14 @@ if ticker:
     cashflow = stock.cashflow
 
     if not annual_financials.empty:
-        # Key financials
-        top_metrics = ["Total Revenue", "Gross Profit", "EBITDA", "EBIT"]
-        last3 = annual_financials.columns[:3]
-        key_df = annual_financials.reindex(top_metrics).loc[:, last3].applymap(to_millions)
-        years = [pd.to_datetime(col).year for col in last3]
-        key_df.columns = years
-        key_df = key_df[years[::-1]]
-        st.subheader("Key Financials (M) — Last 3 Years")
-        st.table(key_df)
-
+        # Key Financials last 5 yrs
+        st.subheader("Key Financials (M) — Last 5 Years")
+        mets   = ["Total Revenue","Gross Profit","EBIT","EBITDA"]
+        last5  = fin.columns[:5]
+        kdf    = fin.reindex(mets).loc[:, last5].applymap(format_millions)
+        yrs    = [pd.to_datetime(c).year for c in last5][::-1]
+        kdf.columns = yrs
+        st.table(kdf)
         # Growth rates
         growth_df = key_df.pct_change(axis=1).iloc[:, 1:] * 100
         growth_df.columns = [f"{curr} vs {prev}" for prev, curr in zip(years[:-1], years[1:])]
