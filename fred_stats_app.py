@@ -1,18 +1,28 @@
+import yfinance as yf
 import streamlit as st
-import requests
 import pandas as pd
+import requests
 import matplotlib.pyplot as plt
 
-# ——— FRED settings ———
+# ——— Page Config ———
+st.set_page_config(page_title="Financial & FRED Dashboard", layout="wide")
+
+# ——— Constants ———
 API_KEY = "26c01b09f8083e30a1ee9cb929188a74"
 FRED_DATA_URL = "https://api.stlouisfed.org/fred/series/observations"
-
-# Single FRED series: Inventory/Sales Ratio for Building Materials & Garden Equipment Dealers
 FRED_SERIES = {
     "MRTSIR444USS": "Inventory/Sales Ratio: Building Materials & Garden Equipment Dealers"
 }
 
-def get_fred_data(series_id, start_date="2000-01-01", end_date="2025-12-31"):
+def to_millions(x):
+    return round(x/1e6, 2) if pd.notnull(x) else 0
+
+@st.cache_data
+def fetch_stock_data(ticker):
+    return yf.Ticker(ticker)
+
+@st.cache_data
+def get_fred_data(series_id, start_date, end_date):
     params = {
         "series_id": series_id,
         "api_key": API_KEY,
@@ -24,57 +34,95 @@ def get_fred_data(series_id, start_date="2000-01-01", end_date="2025-12-31"):
     if resp.status_code != 200:
         st.error(f"Error fetching {series_id}: {resp.status_code}")
         return None
-
     data = resp.json().get("observations", [])
     if not data:
         return None
-
     df = pd.DataFrame(data)
-    df = df[["date", "value"]]
     df["date"] = pd.to_datetime(df["date"])
     df["value"] = pd.to_numeric(df["value"], errors="coerce")
     return df
 
-# ——— Streamlit layout ———
-st.title("📊 Inventory/Sales Ratio: Building Materials & Garden Equipment Dealers")
+# ——— Streamlit App ———
+st.title("Annual Financials & Working Capital with FRED Metrics")
 
-st.markdown(
-    """
-    This dashboard shows the Inventory‑to‑Sales ratio for the Building Materials & Garden Equipment dealer segment,
-    as a direct indicator of how inventories are tracking relative to sales in Home Depot’s industry.
-    """
-)
+# Stock ticker input
+ticker = st.text_input("Enter Ticker:", "AAPL")
+if ticker:
+    stock = fetch_stock_data(ticker)
+    annual_financials = stock.financials
+    balance_sheet = stock.balance_sheet
+    cashflow = stock.cashflow
 
-# Date range selection
-col1, col2 = st.columns(2)
-with col1:
-    start_date = st.date_input("Start Date", pd.to_datetime("2000-01-01"))
-with col2:
-    end_date = st.date_input("End Date", pd.to_datetime("2025-12-31"))
+    if not annual_financials.empty:
+        # Key financials
+        top_metrics = ["Total Revenue", "Gross Profit", "EBITDA", "EBIT"]
+        last3 = annual_financials.columns[:3]
+        key_df = annual_financials.reindex(top_metrics).loc[:, last3].applymap(to_millions)
+        years = [pd.to_datetime(col).year for col in last3]
+        key_df.columns = years
+        key_df = key_df[years[::-1]]
+        st.subheader("Key Financials (M) — Last 3 Years")
+        st.table(key_df)
 
-if st.button("Fetch Data"):
-    series_id, desc = list(FRED_SERIES.items())[0]
-    df = get_fred_data(
-        series_id,
-        start_date=start_date.strftime("%Y-%m-%d"),
-        end_date=end_date.strftime("%Y-%m-%d"),
-    )
+        # Growth rates
+        growth_df = key_df.pct_change(axis=1).iloc[:, 1:] * 100
+        growth_df.columns = [f"{curr} vs {prev}" for prev, curr in zip(years[:-1], years[1:])]
+        st.subheader("Year‑over‑Year Growth (%)")
+        st.table(growth_df)
 
-    if df is not None:
-        st.subheader(f"{desc} ({series_id})")
-        st.dataframe(df.set_index("date"))
+        # Working Capital Metrics
+        def safe(df, idx, col):
+            try:
+                return df.at[idx, col]
+            except:
+                return 0
 
-        st.subheader("📈 Inventory/Sales Ratio Over Time")
-        fig, ax = plt.subplots(figsize=(10, 5))
-        ax.plot(df["date"], df["value"], marker="o", linestyle="-")
-        ax.set_title(desc)
-        ax.set_xlabel("Date")
-        ax.set_ylabel("Ratio")
-        ax.grid(True)
-        st.pyplot(fig)
-    else:
-        st.warning("No data found for the given date range.")
+        raw_inputs = {}
+        wc_metrics = {}
+        for col in last3:
+            yr = pd.to_datetime(col).year
+            inv = safe(balance_sheet, "Inventory", col)
+            ar = safe(balance_sheet, "Accounts Receivable", col)
+            ap = safe(balance_sheet, "Accounts Payable", col)
+            cogs = safe(annual_financials, "Cost Of Revenue", col)
+            rev = safe(annual_financials, "Total Revenue", col)
 
-st.markdown(
-    "Data sourced from [FRED](https://fred.stlouisfed.org/) by the Federal Reserve Bank of St. Louis."
-)
+            raw_vals = [to_millions(inv), to_millions(ar), to_millions(ap), to_millions(cogs), to_millions(rev)]
+            dio = round((inv/cogs)*365,1) if cogs else None
+            dso = round((ar/rev)*365,1) if rev else None
+            dpo = round((ap/cogs)*365,1) if cogs else None
+            ccc = round(dio + dpo - (dso or 0),1) if dio is not None else None
+
+            raw_inputs[yr] = raw_vals
+            wc_metrics[yr] = [dio, dso, dpo, ccc]
+
+        raw_df = pd.DataFrame(raw_inputs, index=["Inventory (M)", "Accounts Receivable (M)", "Accounts Payable (M)", "COGS (M)", "Revenue (M)"])
+        st.subheader("Working Capital Raw Inputs (M) — Last 3 Years")
+        st.table(raw_df)
+
+        wc_df = pd.DataFrame(wc_metrics, index=["DIO", "DSO", "DPO", "CCC"])  
+        st.subheader("Working Capital Metrics (Days) — Last 3 Years")
+        st.table(wc_df)
+
+        # FRED Inventory/Sales Ratio
+        st.subheader("Inventory/Sales Ratio (FRED)")
+        col1, col2 = st.columns(2)
+        start = col1.date_input("Start Date", pd.to_datetime("2000-01-01"))
+        end = col2.date_input("End Date", pd.to_datetime("2025-12-31"))
+        if st.button("Fetch Inventory/Sales Ratio"):
+            sid, desc = next(iter(FRED_SERIES.items()))
+            df_fred = get_fred_data(sid, start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d"))
+            if df_fred is not None:
+                st.subheader(desc)
+                st.dataframe(df_fred.set_index("date"))
+                fig, ax = plt.subplots(figsize=(10,5))
+                ax.plot(df_fred["date"], df_fred["value"], marker="o", linestyle="-")
+                ax.set_title(desc)
+                ax.set_xlabel("Date")
+                ax.set_ylabel("Ratio")
+                ax.grid(True)
+                st.pyplot(fig)
+            else:
+                st.warning("No FRED data found for the given range.")
+
+st.markdown("Data sourced from Yahoo Finance & FRED.")
