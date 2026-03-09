@@ -17,9 +17,10 @@ FRED_SERIES = {
 def to_millions(x):
     return round(x/1e6, 2) if pd.notnull(x) else 0
 
-@st.cache_resource
+@st.cache_data
 def fetch_stock_data(ticker):
-    return yf.Ticker(ticker)
+    stock = yf.Ticker(ticker)
+    return stock.financials, stock.balance_sheet, stock.cashflow
 
 @st.cache_data
 def get_fred_data(series_id, start_date, end_date):
@@ -47,18 +48,15 @@ st.title("Annual Financials & Working Capital with FRED Metrics")
 
 ticker = st.text_input("Enter Ticker:", "HD")
 if ticker:
-    stock = fetch_stock_data(ticker)
-    annual_financials = stock.financials
-    balance_sheet = stock.balance_sheet
-    cashflow = stock.cashflow
+    annual_financials, balance_sheet, cashflow = fetch_stock_data(ticker)
 
     if not annual_financials.empty:
         st.subheader("Key Financials (M) — Last 5 Years")
-        mets   = ["Total Revenue","Gross Profit","EBIT","EBITDA"]
-        last5  = annual_financials.columns[:5]
+        mets    = ["Total Revenue","Gross Profit","EBIT","EBITDA"]
+        last5   = annual_financials.columns[:5]
         kdf_raw = annual_financials.reindex(mets).loc[:, last5]
-        yrs    = [pd.to_datetime(c).year for c in last5]
-        kdf    = kdf_raw.map(to_millions)
+        yrs     = [pd.to_datetime(c).year for c in last5]
+        kdf     = kdf_raw.map(to_millions)
         kdf.columns = yrs
         st.table(kdf)
 
@@ -77,12 +75,12 @@ if ticker:
         raw_inputs = {}
         wc_metrics = {}
         for col in last3:
-            yr = pd.to_datetime(col).year
-            inv = safe(balance_sheet, "Inventory", col)
-            ar = safe(balance_sheet, "Accounts Receivable", col)
-            ap = safe(balance_sheet, "Accounts Payable", col)
+            yr   = pd.to_datetime(col).year
+            inv  = safe(balance_sheet, "Inventory", col)
+            ar   = safe(balance_sheet, "Accounts Receivable", col)
+            ap   = safe(balance_sheet, "Accounts Payable", col)
             cogs = safe(annual_financials, "Cost Of Revenue", col)
-            rev = safe(annual_financials, "Total Revenue", col)
+            rev  = safe(annual_financials, "Total Revenue", col)
 
             raw_vals = [to_millions(inv), to_millions(ar), to_millions(ap), to_millions(cogs), to_millions(rev)]
             dio = round((inv/cogs)*365,1) if cogs else None
@@ -104,7 +102,7 @@ if ticker:
         st.subheader("Inventory/Sales Ratio (FRED)")
         col1, col2 = st.columns(2)
         start = col1.date_input("Start Date", pd.to_datetime("2000-01-01"))
-        end = col2.date_input("End Date", pd.to_datetime("2025-12-31"))
+        end   = col2.date_input("End Date", pd.to_datetime("2025-12-31"))
         if st.button("Fetch Inventory/Sales Ratio"):
             sid, desc = next(iter(FRED_SERIES.items()))
             df_fred = get_fred_data(sid, start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d"))
