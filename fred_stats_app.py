@@ -67,7 +67,7 @@ if ticker:
 
         def safe(df, idx, col):
             try:
-                return <df.at>[idx, col]
+                return <<df.at>>[idx, col]
             except:
                 return 0
 
