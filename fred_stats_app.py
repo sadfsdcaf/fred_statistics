@@ -17,7 +17,7 @@ FRED_SERIES = {
 def to_millions(x):
     return round(x/1e6, 2) if pd.notnull(x) else 0
 
-@st.cache_data
+@st.cache_resource
 def fetch_stock_data(ticker):
     return yf.Ticker(ticker)
 
