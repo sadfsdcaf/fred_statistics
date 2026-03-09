@@ -17,9 +17,10 @@ FRED_SERIES = {
 def to_millions(x):
     return round(x/1e6, 2) if pd.notnull(x) else 0
 
-@st.cache_resource
+@st.cache_data
 def fetch_stock_data(ticker):
-    return yf.Ticker(ticker)
+    stock = yf.Ticker(ticker)
+    return stock.financials, stock.balance_sheet, stock.cashflow
 
 @st.cache_data
 def get_fred_data(series_id, start_date, end_date):
@@ -48,10 +49,7 @@ st.title("Annual Financials & Working Capital with FRED Metrics")
 # Stock ticker input
 ticker = st.text_input("Enter Ticker:", "HD")
 if ticker:
-    stock = fetch_stock_data(ticker)
-    annual_financials = stock.financials
-    balance_sheet = stock.balance_sheet
-    cashflow = stock.cashflow
+    annual_financials, balance_sheet, cashflow = fetch_stock_data(ticker)
 
     if not annual_financials.empty:
         # Key Financials last 5 yrs
