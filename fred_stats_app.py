@@ -57,16 +57,18 @@ if ticker:
         # Key Financials last 5 yrs
         st.subheader("Key Financials (M) — Last 5 Years")
         mets   = ["Total Revenue","Gross Profit","EBIT","EBITDA"]
-        last5  = fin.columns[:5]
-        kdf    = fin.reindex(mets).loc[:, last5].applymap(format_millions)
-        yrs    = [pd.to_datetime(c).year for c in last5][::-1]
+        last5  = annual_financials.columns[:5]
+        kdf_raw = annual_financials.reindex(mets).loc[:, last5]
+        yrs    = [pd.to_datetime(c).year for c in last5]
+        kdf    = kdf_raw.map(to_millions)
         kdf.columns = yrs
         st.table(kdf)
+
         # Growth rates
-        growth_df = key_df.pct_change(axis=1).iloc[:, 1:] * 100
-        growth_df.columns = [f"{curr} vs {prev}" for prev, curr in zip(years[:-1], years[1:])]
+        growth_df = kdf_raw.pct_change(axis=1).iloc[:, 1:] * 100
+        growth_df.columns = [f"{yrs[i]} vs {yrs[i-1]}" for i in range(1, len(yrs))]
         st.subheader("Year‑over‑Year Growth (%)")
-        st.table(growth_df)
+        st.table(growth_df.round(1))
 
         # Working Capital Metrics
         def safe(df, idx, col):
@@ -75,6 +77,7 @@ if ticker:
             except:
                 return 0
 
+        last3 = annual_financials.columns[:3]
         raw_inputs = {}
         wc_metrics = {}
         for col in last3:
@@ -89,7 +92,7 @@ if ticker:
             dio = round((inv/cogs)*365,1) if cogs else None
             dso = round((ar/rev)*365,1) if rev else None
             dpo = round((ap/cogs)*365,1) if cogs else None
-            ccc = round(dio + dpo - (dso or 0),1) if dio is not None else None
+            ccc = round(dio + (dso or 0) - dpo,1) if dio is not None else None
 
             raw_inputs[yr] = raw_vals
             wc_metrics[yr] = [dio, dso, dpo, ccc]
@@ -98,7 +101,7 @@ if ticker:
         st.subheader("Working Capital Raw Inputs (M) — Last 3 Years")
         st.table(raw_df)
 
-        wc_df = pd.DataFrame(wc_metrics, index=["DIO", "DSO", "DPO", "CCC"])  
+        wc_df = pd.DataFrame(wc_metrics, index=["DIO", "DSO", "DPO", "CCC"])
         st.subheader("Working Capital Metrics (Days) — Last 3 Years")
         st.table(wc_df)
 
