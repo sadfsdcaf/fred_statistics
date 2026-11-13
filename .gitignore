@@ -1,0 +1,15 @@
+# Secrets — never commit API keys
+.env
+.env.*
+!.env.example
+.streamlit/secrets.toml
+secrets.toml
+secrets.json
+*.secret
+*.key
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/

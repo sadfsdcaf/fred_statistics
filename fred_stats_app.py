@@ -1,3 +1,5 @@
+import os
+
 import yfinance as yf
 import streamlit as st
 import pandas as pd
@@ -8,11 +10,28 @@ import matplotlib.pyplot as plt
 st.set_page_config(page_title="Financial & FRED Dashboard", layout="wide")
 
 # ——— Constants ———
-API_KEY = "26c01b09f8083e30a1ee9cb929188a74"
-FRED_DATA_URL = "<https://api.stlouisfed.org/fred/series/observations>"
+# FRED API key comes from the environment; never hardcode or display it.
+API_KEY = os.environ.get("FRED_API_KEY", "").strip()
+FRED_DATA_URL = "https://api.stlouisfed.org/fred/series/observations"
+FRED_TIMEOUT = 30  # seconds
 FRED_SERIES = {
     "MRTSIR444USS": "Inventory/Sales Ratio: Building Materials & Garden Equipment Dealers"
 }
+TREASURY_SERIES = {
+    "DGS2": "2-Year Treasury Yield",
+    "DGS10": "10-Year Treasury Yield",
+}
+
+
+def fred_key_available():
+    """Show a clear error and return False if FRED_API_KEY is not configured."""
+    if API_KEY:
+        return True
+    st.error(
+        "FRED API key not configured. Set the FRED_API_KEY environment variable "
+        "and restart the app to enable FRED data."
+    )
+    return False
 
 def to_millions(x):
     return round(x/1e6, 2) if pd.notnull(x) else 0
@@ -31,7 +50,12 @@ def get_fred_data(series_id, start_date, end_date):
         "observation_start": start_date,
         "observation_end": end_date,
     }
-    resp = requests.get(FRED_DATA_URL, params=params)
+    try:
+        resp = requests.get(FRED_DATA_URL, params=params, timeout=FRED_TIMEOUT)
+    except requests.RequestException as exc:
+        # Only show the exception type: its message contains the request URL, which includes the key.
+        st.error(f"Error fetching {series_id}: {type(exc).__name__}")
+        return None
     if resp.status_code != 200:
         st.error(f"Error fetching {series_id}: {resp.status_code}")
         return None
@@ -39,6 +63,36 @@ def get_fred_data(series_id, start_date, end_date):
     if not data:
         return None
     df = pd.DataFrame(data)
+    df["date"] = pd.to_datetime(df["date"])
+    df["value"] = pd.to_numeric(df["value"], errors="coerce")
+    return df
+
+@st.cache_data
+def fetch_fred_series(series_id, start, end):
+    """Fetch one FRED series as a DataFrame with 'date' and 'value' columns.
+
+    `start`/`end` may be dates or "YYYY-MM-DD" strings. Missing values (".")
+    become NaN. Returns None on error or if there is no data.
+    """
+    params = {
+        "series_id": series_id,
+        "api_key": API_KEY,
+        "file_type": "json",
+        "observation_start": pd.to_datetime(start).strftime("%Y-%m-%d"),
+        "observation_end": pd.to_datetime(end).strftime("%Y-%m-%d"),
+    }
+    try:
+        resp = requests.get(FRED_DATA_URL, params=params, timeout=FRED_TIMEOUT)
+    except requests.RequestException as exc:
+        st.error(f"Error fetching {series_id}: {type(exc).__name__}")
+        return None
+    if resp.status_code != 200:
+        st.error(f"Error fetching {series_id}: {resp.status_code}")
+        return None
+    data = resp.json().get("observations", [])
+    if not data:
+        return None
+    df = pd.DataFrame(data)[["date", "value"]]
     df["date"] = pd.to_datetime(df["date"])
     df["value"] = pd.to_numeric(df["value"], errors="coerce")
     return df
@@ -67,8 +121,8 @@ if ticker:
 
         def safe(df, idx, col):
             try:
-                return <<df.at>>[idx, col]
-            except:
+                return df.at[idx, col]
+            except Exception:
                 return 0
 
         last3 = annual_financials.columns[:3]
@@ -100,23 +154,50 @@ if ticker:
         st.table(wc_df)
 
         st.subheader("Inventory/Sales Ratio (FRED)")
-        col1, col2 = st.columns(2)
-        start = col1.date_input("Start Date", pd.to_datetime("2000-01-01"))
-        end   = col2.date_input("End Date", pd.to_datetime("2025-12-31"))
-        if st.button("Fetch Inventory/Sales Ratio"):
-            sid, desc = next(iter(FRED_SERIES.items()))
-            df_fred = get_fred_data(sid, start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d"))
-            if df_fred is not None:
-                st.subheader(desc)
-                st.dataframe(df_fred.set_index("date"))
-                fig, ax = plt.subplots(figsize=(10,5))
-                ax.plot(df_fred["date"], df_fred["value"], marker="o", linestyle="-")
-                ax.set_title(desc)
-                ax.set_xlabel("Date")
-                ax.set_ylabel("Ratio")
-                ax.grid(True)
-                st.pyplot(fig)
-            else:
-                st.warning("No FRED data found for the given range.")
+        if fred_key_available():
+            col1, col2 = st.columns(2)
+            start = col1.date_input("Start Date", pd.to_datetime("2000-01-01"))
+            end   = col2.date_input("End Date", pd.to_datetime("2025-12-31"))
+            if st.button("Fetch Inventory/Sales Ratio"):
+                sid, desc = next(iter(FRED_SERIES.items()))
+                df_fred = get_fred_data(sid, start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d"))
+                if df_fred is not None:
+                    st.subheader(desc)
+                    st.dataframe(df_fred.set_index("date"))
+                    fig, ax = plt.subplots(figsize=(10,5))
+                    ax.plot(df_fred["date"], df_fred["value"], marker="o", linestyle="-")
+                    ax.set_title(desc)
+                    ax.set_xlabel("Date")
+                    ax.set_ylabel("Ratio")
+                    ax.grid(True)
+                    st.pyplot(fig)
+                else:
+                    st.warning("No FRED data found for the given range.")
+
+# ——— Treasury Yields (FRED) ———
+st.subheader("Treasury Yields: 2-Year vs 10-Year (FRED)")
+if fred_key_available():
+    tcol1, tcol2 = st.columns(2)
+    t_start = tcol1.date_input("Yield Start Date", pd.to_datetime("2000-01-01"), key="yield_start")
+    t_end   = tcol2.date_input("Yield End Date", pd.Timestamp.today().normalize(), key="yield_end")
+    if st.button("Fetch Treasury Yields"):
+        fig, ax = plt.subplots(figsize=(10,5))
+        plotted = False
+        for sid, label in TREASURY_SERIES.items():
+            df_y = fetch_fred_series(sid, t_start, t_end)
+            if df_y is None or df_y["value"].dropna().empty:
+                st.warning(f"No FRED data found for {sid} in the given range.")
+                continue
+            df_y = df_y.dropna(subset=["value"])
+            ax.plot(df_y["date"], df_y["value"], linewidth=1.2, label=f"{label} ({sid})")
+            plotted = True
+        if plotted:
+            ax.set_title("2-Year vs 10-Year Treasury Yields")
+            ax.set_xlabel("Date")
+            ax.set_ylabel("Yield (%)")
+            ax.grid(True)
+            ax.legend()
+            st.pyplot(fig)
+        plt.close(fig)
 
 st.markdown("Data sourced from Yahoo Finance & FRED.")
